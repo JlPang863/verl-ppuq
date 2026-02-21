@@ -1,0 +1,16 @@
+tools:
+  - class_name: "gsm8k_detailed_reward_tool.Gsm8kDetailedRewardTool"
+    config:
+      type: native
+    tool_schema:
+      type: "function"
+      function:
+        name: "calc_gsm8k_reward"
+        description: "A tool for calculating the reward of gsm8k. Returns tiered rewards: 1.0 for exact match, 0.5 for within 5%, 0.1 for wrong answer, 0.0 if unparseable. Includes detailed feedback."
+        parameters:
+          type: "object"
+          properties:
+            answer:
+              type: "string"
+              description: "The model's answer to the GSM8K math problem, must be a digits"
+          required: ["answer"]
