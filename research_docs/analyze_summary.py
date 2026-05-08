@@ -241,4 +241,30 @@ plt.tight_layout()
 fig.savefig(OUT / "summary_gap_amplification.png", dpi=140, bbox_inches="tight")
 print(f"  saved {OUT / 'summary_gap_amplification.png'}")
 
-print("\nDone. 4 plots in docs/summary_*.png")
+# -------- 5+6. wandb-style eval accuracy curves (clean single-panel) --------
+print("[5/6] wandb-style eval acc — BF16 regime...")
+fig, ax = plt.subplots(figsize=(8, 5))
+plot_val_curve(ax, {
+    "baseline (no RS/IS)":       df_C,
+    "token_rs (verl, K3 hard)":  df_D,
+    "K3-PPUQ (ours)":            df_K3_full,
+}, "Eval accuracy on GSM8K test (BF16 stress regime)")
+ax.set_xlim(0, 410)
+plt.tight_layout()
+fig.savefig(OUT / "eval_acc_bf16.png", dpi=140, bbox_inches="tight")
+print(f"  saved {OUT / 'eval_acc_bf16.png'}")
+
+print("[6/6] wandb-style eval acc — FP8 regime...")
+fig, ax = plt.subplots(figsize=(8, 5))
+plot_val_curve(ax, {
+    "baseline":        df_v3_baseline,
+    "token_rs (verl)": df_v3_token,
+    "prob-PPUQ":       df_v3_prob,
+    "K3-PPUQ (ours)":  df_v3_K3,
+}, "Eval accuracy on GSM8K test (FP8 stress regime)")
+ax.set_xlim(0, 122)
+plt.tight_layout()
+fig.savefig(OUT / "eval_acc_fp8.png", dpi=140, bbox_inches="tight")
+print(f"  saved {OUT / 'eval_acc_fp8.png'}")
+
+print("\nDone. plots in research_docs/figures/")

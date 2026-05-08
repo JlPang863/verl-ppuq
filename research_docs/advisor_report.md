@@ -37,7 +37,7 @@
 
 **4 个方法对比**：
 
-![BF16 stress](figures/summary_bf16_stress.png)
+![BF16 eval acc](figures/eval_acc_bf16.png)
 
 | Run | val_acc step 400 | Δ vs baseline |
 |---|---|---|
@@ -65,7 +65,7 @@
 
 **4 个方法对比**：
 
-![FP8 stress](figures/summary_fp8_stress.png)
+![FP8 eval acc](figures/eval_acc_fp8.png)
 
 **Step 99（最后稳定共同点，推荐 final ckpt）**：
 
