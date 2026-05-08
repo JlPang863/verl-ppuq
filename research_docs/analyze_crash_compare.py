@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 
 REPO = Path(__file__).resolve().parent.parent
 LOGS = REPO / "logs"
-OUT = REPO / "docs"
+OUT = REPO / "research_docs" / "figures"
 
 KEYS = [
     "val-core/openai/gsm8k/acc/mean@1",

@@ -14,7 +14,7 @@
 
 **结果（120 step, baseline GRPO + LoRA）**：
 
-![Rho-1 vs baseline](summary_rho1_vs_baseline.png)
+![Rho-1 vs baseline](figures/summary_rho1_vs_baseline.png)
 
 | | val_acc step 120 | actor/kl_loss |
 |---|---|---|
@@ -37,7 +37,7 @@
 
 **4 个方法对比**：
 
-![BF16 stress](summary_bf16_stress.png)
+![BF16 stress](figures/summary_bf16_stress.png)
 
 | Run | val_acc step 400 | Δ vs baseline |
 |---|---|---|
@@ -65,7 +65,7 @@
 
 **4 个方法对比**：
 
-![FP8 stress](summary_fp8_stress.png)
+![FP8 stress](figures/summary_fp8_stress.png)
 
 **Step 99（最后稳定共同点，推荐 final ckpt）**：
 
@@ -82,7 +82,7 @@
 
 ## 4. 核心 paper figure：K3 vs prob-only PPUQ 的差距随 mismatch 放大
 
-![Gap amplification](summary_gap_amplification.png)
+![Gap amplification](figures/summary_gap_amplification.png)
 
 | Regime | mismatch (diff_mean) | K3 vs prob-PPUQ gap |
 |---|---|---|
