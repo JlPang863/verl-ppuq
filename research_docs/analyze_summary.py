@@ -382,6 +382,43 @@ plt.tight_layout()
 fig.savefig(OUT / "eval_acc_bf16_k3_vs_prob.png", dpi=140, bbox_inches="tight")
 print(f"  saved {OUT / 'eval_acc_bf16_k3_vs_prob.png'}")
 
+print("[+0c] MAIN: K3-PPUQ vs verl token_rs vs baseline (FP8 stress, 3 methods) ...")
+fig, ax = plt.subplots(figsize=(9, 5.5))
+key = "val-core/openai/gsm8k/acc/mean@1"
+sub_v3_b = df_v3_baseline.dropna(subset=[key])
+sub_v3_t = df_v3_token.dropna(subset=[key])
+sub_v3_K = df_v3_K3.dropna(subset=[key])
+
+ax.plot(sub_v3_b["step"], sub_v3_b[key] * 100, "-o",
+        label="GRPO baseline", color="#888888", linewidth=1.6, markersize=5, alpha=0.9)
+ax.plot(sub_v3_t["step"], sub_v3_t[key] * 100, "-o",
+        label="GRPO + verl token_rs (prior baseline)", color="#2ca02c",
+        linewidth=1.8, markersize=5, alpha=0.95)
+ax.plot(sub_v3_K["step"], sub_v3_K[key] * 100, "-o",
+        label="GRPO + K3-PPUQ (ours)", color="#1f77b4",
+        linewidth=2.2, markersize=6, alpha=0.95)
+ax.axvline(x=99, color="green", linestyle="--", alpha=0.4, linewidth=1)
+ax.set_xlabel("training step")
+ax.set_ylabel("val_acc (GSM8K test, %)")
+ax.set_title("FP8 stress regime: K3-PPUQ (ours) vs verl token_rs (prior) vs baseline")
+ax.grid(True, alpha=0.3)
+ax.legend(fontsize=10, loc="lower left")
+ax.set_xlim(0, 122)
+ymin, ymax = ax.get_ylim()
+ax.text(100, ymin + (ymax-ymin)*0.92, " step 99\n best stable ckpt", color="green", fontsize=8, alpha=0.8)
+# annotate step 99 values
+for sub, color, dy in [(sub_v3_b, "#666", 5), (sub_v3_t, "#2ca02c", -16),
+                        (sub_v3_K, "#1f77b4", 8)]:
+    v_at_99 = sub[sub.step == 99][key]
+    if len(v_at_99) > 0:
+        ax.annotate(f"{v_at_99.iloc[0]*100:.2f}%", xy=(99, v_at_99.iloc[0]*100),
+                    xytext=(-95, dy), textcoords="offset points",
+                    fontsize=9.5, color=color, fontweight="bold",
+                    arrowprops=dict(arrowstyle="->", color=color, alpha=0.4))
+plt.tight_layout()
+fig.savefig(OUT / "eval_acc_fp8_main.png", dpi=140, bbox_inches="tight")
+print(f"  saved {OUT / 'eval_acc_fp8_main.png'}")
+
 print("[+0b] Focused: K3-PPUQ vs prob-only PPUQ (FP8)...")
 fig, ax = plt.subplots(figsize=(8, 5))
 sub_K3v3 = df_v3_K3.dropna(subset=[key])

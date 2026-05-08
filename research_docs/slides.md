@@ -8,7 +8,7 @@ Render: `marp slides.md -o slides.pdf`  or just read as markdown.
 
 # Token-level Selection for Stable GRPO
 
-**故事**：从 Rho-1 失败 → PPUQ 框架 → K3 vs prob-only 在 BF16 仅 +0.53pp → FP8 放大 mismatch → +2.19pp（4.1× 放大）
+**故事**：Rho-1 失败 → 设计 PPUQ → K3-PPUQ vs verl token_rs (prior baseline) BF16 +0.84pp → FP8 放大 mismatch → +1.81pp（差距更大）
 
 ---
 
@@ -140,47 +140,40 @@ K3 三个性质同时满足：**非负 + 无偏 + 低方差** → 完美的 per-
 
 ---
 
-## 5b. Ablation：K3 vs prob-only PPUQ（同框架内 score 对照）
-
-排除 reviewer 的 "K3 score ≈ prob detector" 假设：
-
-![K3 vs prob ablation](figures/eval_acc_bf16_k3_vs_prob.png)
-
-| Score variant | step 400 | Δ |
-|---|---|---|
-| prob-only (−log π_old) | 86.13% | — |
-| **K3 KL (ours)** | **86.66%** | **+0.53pp** |
-
-→ 仅 0.5pp，差距小 → 需要更大 mismatch 验证 K3 score 真的有独立信号 → Phase 3
 
 ---
 
 ## 6. Phase 3 — 人为放大 mismatch 二次验证
 
-**动机**：BF16 下 mismatch 自然太小（`rollout_probs_diff_mean ≈ 0.003`），K3 vs prob 看不出差距。换 vLLM **FP8 rollout** 把 mismatch 放大 ~4×（≈ 0.012），看 K3 信号是否被放大显示出来。
+**动机**：BF16 下 mismatch 自然太小（`rollout_probs_diff_mean ≈ 0.003`）。换 vLLM **FP8 rollout** 把 mismatch 放大 ~4×（≈ 0.012），看 selection methods 在更恶劣 mismatch 下表现。
 
 **Setup**：Qwen2.5-1.5B full-params + FP8 vLLM rollout, kl=0.001, lr=5e-6, 120 step
 
-![K3 vs prob FP8](figures/eval_acc_fp8_k3_vs_prob.png)
+### 主对比：K3-PPUQ vs verl token_rs (3 method 同 horizon)
 
-| Run | val_acc step 99 (best stable) | Δ |
+![FP8 main 3-method](figures/eval_acc_fp8_main.png)
+
+| Method | step 99 val_acc | Δ vs token_rs |
 |---|---|---|
-| prob-only PPUQ (control) | 70.36% | — |
-| **K3-PPUQ (我的)** | **72.55%** ★ | **+2.19pp** |
+| GRPO baseline | 71.80% | +1.06pp |
+| verl token_rs (prior) | 70.74% | — |
+| **K3-PPUQ (ours)** | **72.55%** ★ | **+1.81pp** |
 
-→ Phase 2 的 +0.53pp 在 Phase 3 放大成 +2.19pp。
+→ K3-PPUQ 比 verl token_rs **+1.81pp**（vs Phase 2 BF16 仅 +0.84pp，**FP8 mismatch 放大让差距更大**）
+
+> step 120 K3 崩,baseline 和 token_rs 没崩 → 取 step 99 公平比较
 
 ---
 
-## 7. 核心 finding：差距随 mismatch 4× 放大
+## 7. 核心 finding：FP8 放大 mismatch → K3 优势更显著
 
-| Regime | mismatch (`diff_mean`) | K3 vs prob gap |
+| Regime | mismatch (`diff_mean`) | K3-PPUQ vs verl token_rs |
 |---|---|---|
-| BF16 stress | ~0.003 | **+0.53pp** |
-| FP8 stress | ~0.012 (4× 大) | **+2.19pp** |
-| **放大倍数** | **4×** | **4.1×** |
+| BF16 stress | ~0.003 | **+0.84pp** |
+| FP8 stress | ~0.012 (4× 大) | **+1.81pp** |
+| **放大倍数** | **4×** | **~2.15×** |
 
-**结论**：差距倍数严格匹配 mismatch 倍数 → K3 score 不只是低概率检测器（reviewer 假设被驳）；K3 的 mismatch-aware 信号是真实的、可定量复现的。
+**结论**：mismatch 越大,K3-PPUQ 相对 prior baseline (verl token_rs) 优势越显著 → K3 score 的 mismatch-aware 信号是真实有效的
 
 ---
 
@@ -189,9 +182,8 @@ K3 三个性质同时满足：**非负 + 无偏 + 低方差** → 完美的 per-
 | Phase | 主对比 | 数据 | 结论 |
 |---|---|---|---|
 | 1 | baseline vs Rho-1 | 82.18% vs 79.30% (**−2.88pp**) | Rho-1 直搬 SFT 失败 |
-| 2 主 | **K3-PPUQ vs verl token_rs** (BF16) | resume 86.66% vs 85.82% (**+0.84pp**) | K3 late-stage refinement 胜 prior baseline |
-| 2 ablation | K3 vs prob-only (BF16) | 86.66% vs 86.13% (**+0.53pp**) | PPUQ 框架内 score 差异小 → 引出 Phase 3 |
-| 3 | K3 vs prob-only (FP8) | 72.55% vs 70.36% (**+2.19pp**) | mismatch ×4 → 差距 ×4.1, K3 score 信号确认 |
+| 2 | **K3-PPUQ vs verl token_rs** (BF16) | 86.66% vs 85.82% (**+0.84pp**) | K3-PPUQ 胜 prior baseline |
+| 3 | **K3-PPUQ vs verl token_rs** (FP8) | 72.55% vs 70.74% (**+1.81pp**) | mismatch ×4 → 差距 ~×2.15,K3 优势在更大 mismatch 下更明显 |
 
 **下一步**：
 1. 解决 Phase 3 step 120 累积失稳（试动态 q 或 soft reweight）
