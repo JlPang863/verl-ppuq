@@ -153,6 +153,121 @@ def _parse_rollout_rs_thresholds(
     return thresholds
 
 
+def compute_per_prompt_quantile_mask(
+    log_ratio: torch.Tensor,
+    response_mask: torch.Tensor,
+    prompt_group_ids: torch.Tensor,
+    q_keep: float,
+    score_mode: str = "k3",
+    min_pool_size: int = 500,
+    old_log_prob: Optional[torch.Tensor] = None,
+    rollout_log_prob: Optional[torch.Tensor] = None,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    """PPUQ (Per-Prompt Uniform Quantile) rejection mask.
+
+    For each prompt group, pool all valid (response_mask=1) tokens across its rollouts,
+    compute the `q_keep`-quantile of per-token scores, and drop tokens above it.
+
+    If a prompt's valid token count is below `min_pool_size`, fall back to the batch-
+    level quantile for that prompt (gracefully handles very short responses).
+
+    Args:
+        log_ratio: (bs, L) log π_train - log π_rollout per token.
+        response_mask: (bs, L) 0/1 mask for valid response tokens.
+        prompt_group_ids: (bs,) integer id mapping each rollout row to its prompt group.
+        q_keep: float in (0, 1), quantile of scores to keep (e.g., 0.95 drops top 5%).
+        score_mode: "k3" (default), "k1", "k2", or "abs_log_ratio".
+        min_pool_size: if a prompt's valid-token pool is smaller, use batch-level threshold.
+
+    Returns:
+        (modified_response_mask, metrics) — mask has rejected positions zeroed out.
+    """
+    SAFETY = 20.0
+    log_ratio_safe = torch.clamp(log_ratio, min=-SAFETY, max=SAFETY)
+    if score_mode == "k1":
+        score = -log_ratio_safe
+    elif score_mode == "k2":
+        score = 0.5 * log_ratio_safe ** 2
+    elif score_mode == "k3":
+        score = torch.exp(log_ratio_safe) - 1.0 - log_ratio_safe
+    elif score_mode == "neg_logp":
+        # Prob-only ablation: score = -log π_old (higher for low-probability tokens)
+        # NOTE: requires old_log_prob to be passed; falls back to abs_log_ratio otherwise
+        if old_log_prob is None:
+            score = log_ratio_safe.abs()
+        else:
+            score = -old_log_prob.clamp(min=-SAFETY, max=0.0)
+    else:  # "abs_log_ratio"
+        score = log_ratio_safe.abs()
+    score = score.to(log_ratio.dtype)
+
+    mask_bool = response_mask.bool()
+    flat_score = score.flatten()
+    flat_mask = mask_bool.flatten()
+    valid_scores_all = flat_score[flat_mask]
+
+    # Batch-level fallback threshold
+    if valid_scores_all.numel() > 0:
+        batch_tau = torch.quantile(valid_scores_all.float(), q=q_keep).to(score.dtype)
+    else:
+        batch_tau = torch.tensor(float("inf"), device=score.device, dtype=score.dtype)
+
+    # Per-prompt thresholds
+    unique_groups = torch.unique(prompt_group_ids)
+    per_row_tau = torch.full((score.shape[0],), batch_tau.item(), device=score.device, dtype=score.dtype)
+    n_fallback = 0
+    taus: list[float] = []
+    for g in unique_groups.tolist():
+        rows = (prompt_group_ids == g)
+        g_scores = score[rows][mask_bool[rows]]
+        if g_scores.numel() >= min_pool_size:
+            tau_g = torch.quantile(g_scores.float(), q=q_keep).to(score.dtype)
+        else:
+            tau_g = batch_tau
+            n_fallback += 1
+        per_row_tau[rows] = tau_g
+        taus.append(tau_g.item())
+
+    # Compare each token against its row's τ
+    row_tau_expanded = per_row_tau.unsqueeze(-1).expand_as(score)
+    keep = (score < row_tau_expanded).to(response_mask.dtype) * response_mask
+
+    masked_fraction = ((response_mask - keep).sum() / response_mask.sum().clamp(min=1)).item()
+    metrics = {
+        f"per_prompt_{score_mode}_quantile/batch_tau": batch_tau.item(),
+        f"per_prompt_{score_mode}_quantile/per_prompt_tau_mean": float(sum(taus) / len(taus)) if taus else 0.0,
+        f"per_prompt_{score_mode}_quantile/per_prompt_tau_max": float(max(taus)) if taus else 0.0,
+        f"per_prompt_{score_mode}_quantile/per_prompt_tau_min": float(min(taus)) if taus else 0.0,
+        f"per_prompt_{score_mode}_quantile/n_fallback_groups": float(n_fallback),
+        f"per_prompt_{score_mode}_quantile/n_groups": float(len(taus)),
+        f"per_prompt_{score_mode}_quantile/masked_fraction": masked_fraction,
+    }
+
+    # Diagnostic: characterize KEPT vs DROPPED tokens to understand PPUQ's mechanism
+    dropped = response_mask * (1.0 - keep)
+    denom_k = keep.sum().clamp(min=1)
+    denom_d = dropped.sum().clamp(min=1)
+    # score stats
+    metrics[f"per_prompt_{score_mode}_quantile/score_kept_mean"] = ((score * keep).sum() / denom_k).item()
+    metrics[f"per_prompt_{score_mode}_quantile/score_dropped_mean"] = ((score * dropped).sum() / denom_d).item()
+    # log-prob stats (if provided) — is dropped subset "peaked" (low log π_old)?
+    if old_log_prob is not None:
+        metrics[f"per_prompt_{score_mode}_quantile/oldlogp_kept_mean"] = (
+            (old_log_prob * keep).sum() / denom_k
+        ).item()
+        metrics[f"per_prompt_{score_mode}_quantile/oldlogp_dropped_mean"] = (
+            (old_log_prob * dropped).sum() / denom_d
+        ).item()
+    if rollout_log_prob is not None:
+        metrics[f"per_prompt_{score_mode}_quantile/rolllogp_kept_mean"] = (
+            (rollout_log_prob * keep).sum() / denom_k
+        ).item()
+        metrics[f"per_prompt_{score_mode}_quantile/rolllogp_dropped_mean"] = (
+            (rollout_log_prob * dropped).sum() / denom_d
+        ).item()
+    return keep, metrics
+
+
 def compute_rollout_rejection_mask(
     log_ratio: torch.Tensor,
     response_mask: torch.Tensor,
@@ -975,6 +1090,74 @@ def compute_rollout_correction_and_add_to_batch(
     rollout_rs = rollout_corr_config.get("rollout_rs", None)
     rollout_rs_threshold = rollout_corr_config.get("rollout_rs_threshold", None)
 
+    # FP8 vLLM rollout can emit -inf log_probs when a token's quantized prob underflows to 0.
+    # Left untreated, the downstream log_ratio / quantile / masked_mean all become NaN, killing
+    # both the metrics and the PPUQ filtering signal. Clamp non-finite values and surface the
+    # fraction so we know how often it happens.
+    sanitize_metrics = {}
+    if "rollout_log_probs" in batch.batch:
+        rlp = batch.batch["rollout_log_probs"]
+        rmask = batch.batch.get("response_mask")
+        bad = ~torch.isfinite(rlp)
+        if rmask is not None:
+            valid_count = rmask.sum().clamp_min(1)
+            inf_frac = (bad & rmask.bool()).sum().float() / valid_count.float()
+        else:
+            inf_frac = bad.float().mean()
+        if bad.any():
+            batch.batch["rollout_log_probs"] = torch.where(
+                bad, torch.full_like(rlp, -50.0), rlp
+            )
+        sanitize_metrics["rollout_corr/rollout_logp_inf_frac"] = inf_frac.detach().item()
+
+    # ---- PPUQ fast path: per-prompt quantile-based rejection ----
+    # Triggered when rollout_rs starts with "per_prompt_" (e.g., "per_prompt_k3_quantile").
+    # Uses batch.non_tensor_batch["uid"] to group tokens by prompt.
+    if rollout_rs is not None and str(rollout_rs).startswith("per_prompt_"):
+        if "uid" not in batch.non_tensor_batch:
+            raise ValueError("PPUQ (per_prompt_*) requires batch.non_tensor_batch['uid']")
+        import numpy as _np
+
+        # Parse mode: e.g. "per_prompt_k3_quantile" -> score_mode="k3"
+        # Recognize multi-word modes like "per_prompt_neg_logp_quantile" -> "neg_logp"
+        rs_str = str(rollout_rs)
+        if "neg_logp" in rs_str:
+            score_mode = "neg_logp"
+        elif "abs_log_ratio" in rs_str:
+            score_mode = "abs_log_ratio"
+        else:
+            parts = rs_str.split("_")
+            score_mode = parts[2] if len(parts) >= 3 else "k3"
+        q_keep = float(rollout_rs_threshold) if rollout_rs_threshold is not None else 0.95
+        assert 0.0 < q_keep < 1.0, f"PPUQ q_keep must be in (0, 1), got {q_keep}"
+
+        # Map uid strings -> integer group ids
+        uids = _np.asarray(batch.non_tensor_batch["uid"])
+        _, inverse = _np.unique(uids, return_inverse=True)
+        log_ratio = batch.batch["old_log_probs"] - batch.batch["rollout_log_probs"]
+        prompt_group_ids = torch.as_tensor(inverse, dtype=torch.long, device=log_ratio.device)
+
+        modified_response_mask, ppuq_metrics = compute_per_prompt_quantile_mask(
+            log_ratio=log_ratio,
+            response_mask=batch.batch["response_mask"],
+            prompt_group_ids=prompt_group_ids,
+            q_keep=q_keep,
+            score_mode=score_mode,
+            old_log_prob=batch.batch["old_log_probs"],
+            rollout_log_prob=batch.batch["rollout_log_probs"],
+        )
+        batch.batch["response_mask"] = modified_response_mask
+
+        # Off-policy diagnostic metrics (KL/PPL/chi²) for parity with normal path
+        offpolicy_metrics = compute_offpolicy_metrics(
+            old_log_prob=batch.batch["old_log_probs"],
+            rollout_log_prob=batch.batch["rollout_log_probs"],
+            response_mask=batch.batch["response_mask"],
+        )
+        metrics_scalar = {f"rollout_corr/{k}": v for k, v in {**ppuq_metrics, **offpolicy_metrics}.items()}
+        metrics_scalar.update(sanitize_metrics)
+        return batch, metrics_scalar
+
     # Compute IS weights and get modified response_mask
     rollout_is_weights, modified_response_mask, rollout_corr_metrics = compute_rollout_correction_and_rejection_mask(
         old_log_prob=batch.batch["old_log_probs"],
@@ -994,6 +1177,7 @@ def compute_rollout_correction_and_add_to_batch(
     if rollout_is_weights is not None:
         batch = batch.union(rollout_is_weights)
 
+    rollout_corr_metrics.update(sanitize_metrics)
     return batch, rollout_corr_metrics
 
 

@@ -10,6 +10,24 @@
 
 /pyrightconfig.json
 
+# Python venvs (12-13 GB each, never commit)
+venv/
+venv_megatron/
+
+# Training logs (large + ephemeral)
+logs/
+
+# Auto-generated CSVs from analyze_*.py (re-runnable)
+docs/*.csv
+
+# Training checkpoints (live in /mnt/data1/)
+ckpts/
+**/global_step_*
+
+# Ray temp dirs
+/tmp/r_*
+.tmp_ray*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

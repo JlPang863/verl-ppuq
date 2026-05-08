@@ -46,6 +46,28 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
+def _rho1_select_mask(score: torch.Tensor, base_mask: torch.Tensor, keep_ratio: float) -> torch.Tensor:
+    """Per-row top-k selection mask for Rho-1 token selection.
+
+    Score is expected to already be masked (positions outside base_mask should be -inf or 0).
+    Returns a 0/1 mask that is a subset of base_mask, where each row keeps the top
+    `ceil(valid_n * keep_ratio)` highest-scored positions.
+    """
+    bsz = score.shape[0]
+    valid_n = base_mask.sum(dim=-1)
+    k_per = (valid_n * keep_ratio).clamp(min=1).long()
+    score_m = score.masked_fill(base_mask == 0, float("-inf"))
+    k_max = int(k_per.max().item())
+    if k_max == 0:
+        return torch.zeros_like(base_mask)
+    topk_idx = torch.topk(score_m, k=k_max, dim=-1).indices
+    keep = torch.arange(k_max, device=score.device).unsqueeze(0) < k_per.unsqueeze(-1)
+    out = torch.zeros_like(base_mask)
+    rows = torch.arange(bsz, device=score.device).unsqueeze(-1).expand_as(topk_idx)
+    out[rows, topk_idx] = keep.to(out.dtype)
+    return out * base_mask
+
+
 class DataParallelPPOActor(BasePPOActor):
     """FSDP DataParallel PPO Actor or Ref worker
 
@@ -611,12 +633,37 @@ class DataParallelPPOActor(BasePPOActor):
                     # clip_cov -> verl.trainer.ppo.core_algos.compute_policy_loss_clip_cov
                     policy_loss_fn = get_policy_loss_fn(loss_mode)
 
+                    # === Rho-1 token selection (optional, see docs/rho1_grpo.md) ===
+                    pg_response_mask = response_mask
+                    rho1_cfg = self.config.get("rho1", None)
+                    if rho1_cfg is not None and rho1_cfg.get("enable", False):
+                        if not self.config.use_kl_loss:
+                            raise ValueError(
+                                "rho1 requires use_kl_loss=True so that ref_log_prob is loaded into model_inputs"
+                            )
+                        ref_lp = model_inputs["ref_log_prob"]
+                        score = (ref_lp - log_prob.detach()) * response_mask
+                        keep_ratio = float(rho1_cfg.get("select_ratio", 0.6))
+                        pg_response_mask = _rho1_select_mask(score, response_mask, keep_ratio)
+                        with torch.no_grad():
+                            kept = pg_response_mask
+                            dropped = response_mask * (1.0 - pg_response_mask)
+                            denom_resp = response_mask.sum().clamp(min=1)
+                            denom_kept = kept.sum().clamp(min=1)
+                            denom_drop = dropped.sum().clamp(min=1)
+                            kept_mean = ((score * kept).sum() / denom_kept).item()
+                            drop_mean = ((score * dropped).sum() / denom_drop).item()
+                            micro_batch_metrics["rho1/keep_ratio_actual"] = (kept.sum() / denom_resp).item()
+                            micro_batch_metrics["rho1/score_kept_mean"] = kept_mean
+                            micro_batch_metrics["rho1/score_dropped_mean"] = drop_mean
+                            micro_batch_metrics["rho1/score_gap"] = kept_mean - drop_mean
+
                     # Compute policy loss (any function is expected to return 2 values)
                     pg_loss, pg_metrics = policy_loss_fn(
                         old_log_prob=old_log_prob,
                         log_prob=log_prob,
                         advantages=advantages,
-                        response_mask=response_mask,
+                        response_mask=pg_response_mask,
                         loss_agg_mode=loss_agg_mode,
                         config=self.config,
                         rollout_is_weights=rollout_is_weights,

@@ -1427,6 +1427,25 @@ class RayPPOTrainer:
                                 )
                             batch = batch.union(old_log_prob)
                             if "rollout_log_probs" in batch.batch.keys():
+                                # FP8 vLLM rollout can produce -inf / NaN log_probs (quantized
+                                # prob → 0). Sanitize once here so every downstream consumer
+                                # (debug metrics, rollout_corr, PPUQ filtering) sees finite values.
+                                _rlp = batch.batch["rollout_log_probs"]
+                                _bad = ~torch.isfinite(_rlp)
+                                if _bad.any():
+                                    _rmask = batch.batch.get("response_mask")
+                                    if _rmask is not None:
+                                        _denom = _rmask.sum().clamp_min(1).float()
+                                        _frac = (_bad & _rmask.bool()).sum().float() / _denom
+                                    else:
+                                        _frac = _bad.float().mean()
+                                    batch.batch["rollout_log_probs"] = torch.where(
+                                        _bad, torch.full_like(_rlp, -50.0), _rlp
+                                    )
+                                    metrics["rollout/logp_inf_frac"] = _frac.detach().item()
+                                else:
+                                    metrics["rollout/logp_inf_frac"] = 0.0
+
                                 # TODO: we may want to add diff of probs too.
                                 from verl.utils.debug.metrics import calculate_debug_metrics
 

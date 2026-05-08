@@ -29,6 +29,7 @@ from .optimizer import OptimizerConfig
 __all__ = [
     "PolicyLossConfig",
     "RouterReplayConfig",
+    "Rho1Config",
     "ActorConfig",
     "FSDPActorConfig",
     "McoreActorConfig",
@@ -90,6 +91,19 @@ class PolicyLossConfig(BaseConfig):
     kl_cov_ratio: float = 0.0002
     ppo_kl_coef: float = 0.1
     rollout_correction: RolloutCorrectionConfig = field(default_factory=RolloutCorrectionConfig)
+
+
+@dataclass
+class Rho1Config(BaseConfig):
+    """Rho-1 token selection config (see docs/rho1_grpo.md).
+
+    Args:
+        enable (bool): Enable Rho-1 token selection. Requires use_kl_loss=True.
+        select_ratio (float): Per-response top-k keep ratio in (0, 1].
+    """
+
+    enable: bool = False
+    select_ratio: float = 0.6
 
 
 @dataclass
@@ -172,6 +186,7 @@ class ActorConfig(BaseConfig):
     optim: OptimizerConfig = field(default_factory=OptimizerConfig)
     use_fused_kernels: bool = False
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
+    rho1: Rho1Config = field(default_factory=Rho1Config)
     engine: BaseConfig = field(default_factory=BaseConfig)
     rollout_n: int = MISSING  # must be override by sampling config
     model_config: HFModelConfig = field(default_factory=BaseConfig)

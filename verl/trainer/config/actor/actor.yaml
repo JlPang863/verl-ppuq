@@ -259,3 +259,15 @@ router_replay:
   # Required when mode is 'replay'
   replay_file: null
 
+# Rho-1 token selection (see docs/rho1_grpo.md). Off by default.
+rho1:
+
+  # Target dataclass for this configuration
+  _target_: verl.workers.config.Rho1Config
+
+  # Enable Rho-1 token selection. Requires actor.use_kl_loss=true so ref_log_prob is loaded.
+  enable: false
+
+  # Per-response top-k keep ratio in (0, 1].
+  select_ratio: 0.6
+
