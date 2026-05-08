@@ -287,27 +287,54 @@ def plot_focused(ax, label_to_df_color, title, xlim=None):
 
 
 # -------- Focused 2-line plots (baseline vs K3-PPUQ only, for advisor report) --------
-print("[+0a] Focused: K3-PPUQ vs prob-only PPUQ (BF16, 350→400 resume)...")
-fig, ax = plt.subplots(figsize=(8, 5))
+print("[+0a] Focused: K3 vs prob (BF16, full 1→400 incl. baseline 1-350 + resume 350-400)...")
+fig, ax = plt.subplots(figsize=(9, 5.5))
 key = "val-core/openai/gsm8k/acc/mean@1"
+# baseline = full 1-350 trajectory (3 segmented runs glued)
+sub_C = df_C.dropna(subset=[key])
+# K3 / prob = resume from baseline_350 → glue baseline 0-350 + resume 350-400 for visualization
+# (resume runs only have step 350+ data; before 350 they are identical to baseline by construction)
 sub_K3r = df_K3_resume.dropna(subset=[key])
 sub_probr = df_prob_resume.dropna(subset=[key])
-ax.plot(sub_K3r["step"], sub_K3r[key] * 100, "-o",
-        label="K3-PPUQ (ours, K3 KL score)", color="#1f77b4", linewidth=2.0, markersize=6, alpha=0.95)
-ax.plot(sub_probr["step"], sub_probr[key] * 100, "-o",
-        label="prob-only PPUQ (control, −log π_old score)", color="#ff7f0e", linewidth=2.0, markersize=6, alpha=0.95)
+# Splice: baseline curve 1-350 + resume curve 350-400
+import numpy as np
+def splice(base_df, resume_df):
+    a = base_df[base_df["step"] <= 350][["step", key]]
+    b = resume_df[resume_df["step"] >= 350][["step", key]]
+    return pd.concat([a, b], ignore_index=True).sort_values("step").reset_index(drop=True)
+sub_K3_full = splice(sub_C, sub_K3r)
+sub_prob_full = splice(sub_C, sub_probr)
+
+ax.plot(sub_C["step"], sub_C[key] * 100, "-",
+        label="GRPO baseline (step 1-350)", color="#888888", linewidth=1.6, alpha=0.85)
+ax.plot(sub_K3_full["step"], sub_K3_full[key] * 100, "-o",
+        label="K3-PPUQ (ours, K3 KL score)", color="#1f77b4",
+        linewidth=1.6, markersize=3, alpha=0.95)
+ax.plot(sub_prob_full["step"], sub_prob_full[key] * 100, "-o",
+        label="prob-only PPUQ (control, −log π_old)", color="#ff7f0e",
+        linewidth=1.6, markersize=3, alpha=0.95)
+ax.axvline(x=350, color="green", linestyle="--", alpha=0.4, linewidth=1)
 ax.set_xlabel("training step")
 ax.set_ylabel("val_acc (GSM8K test, %)")
-ax.set_title("K3-PPUQ vs prob-only PPUQ on GSM8K (BF16 stress, resume from baseline step 350)")
+ax.set_title("K3-PPUQ vs prob-only PPUQ — full trajectory step 1→400\n"
+             "(BF16 stress regime; PPUQ branches from baseline ckpt at step 350)")
 ax.grid(True, alpha=0.3)
-ax.legend(fontsize=10, loc="lower right")
-ax.set_xlim(350, 400)
-final_K3r = sub_K3r[sub_K3r.step == sub_K3r["step"].max()][key].iloc[0] * 100
-final_probr = sub_probr[sub_probr.step == sub_probr["step"].max()][key].iloc[0] * 100
+ax.legend(fontsize=9, loc="lower right")
+ax.set_xlim(0, 410)
+ymin, ymax = ax.get_ylim()
+ax.text(351, ymin + (ymax-ymin)*0.05, " branch at\n step 350",
+        color="green", fontsize=8, alpha=0.8)
+# annotate final values at step 400
+final_C = sub_C[sub_C["step"] == sub_C["step"].max()][key].iloc[0] * 100
+final_K3r = sub_K3r[sub_K3r["step"] == sub_K3r["step"].max()][key].iloc[0] * 100
+final_probr = sub_probr[sub_probr["step"] == sub_probr["step"].max()][key].iloc[0] * 100
+ax.annotate(f"baseline 350: {final_C:.2f}%", xy=(350, final_C),
+            xytext=(-110, -22), textcoords="offset points", fontsize=9, color="#666",
+            arrowprops=dict(arrowstyle="->", color="#888", alpha=0.5))
 ax.annotate(f"{final_K3r:.2f}%", xy=(sub_K3r["step"].max(), final_K3r),
             xytext=(5, 5), textcoords="offset points", fontsize=10, color="#1f77b4", fontweight="bold")
 ax.annotate(f"{final_probr:.2f}%", xy=(sub_probr["step"].max(), final_probr),
-            xytext=(5, -12), textcoords="offset points", fontsize=10, color="#ff7f0e", fontweight="bold")
+            xytext=(5, -14), textcoords="offset points", fontsize=10, color="#ff7f0e", fontweight="bold")
 plt.tight_layout()
 fig.savefig(OUT / "eval_acc_bf16_k3_vs_prob.png", dpi=140, bbox_inches="tight")
 print(f"  saved {OUT / 'eval_acc_bf16_k3_vs_prob.png'}")
