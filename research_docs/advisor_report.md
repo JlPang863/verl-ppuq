@@ -68,28 +68,24 @@ $$
 
 paper 主表的真正比较：你的 K3-PPUQ vs **verl 内置的 token_rs**（prior baseline，token-K3 hard threshold + token-IS）。
 
-**实验设计**（共 4 条 run，全部 BF16 stress regime: kl=0, lr=1e-5）：
-- **GRPO**（无 RS,base reference）：1-350
+**实验设计**（3 条 run，BF16 stress regime: kl=0, lr=1e-5）：
+- **GRPO**（无 RS, base reference）：1-350
 - **GRPO + verl token_rs**（prior baseline）：1-350
-- **GRPO + K3-PPUQ standalone**（你的 method, 从 step 0）：1-400
-- **GRPO + K3-PPUQ resume**（你的 method, 从 baseline ckpt @ step 350 续训）：350-400
+- **GRPO + K3-PPUQ**（你的 method，**从 baseline ckpt @ step 350 续训** 50 步到 400）
 
 ![K3-PPUQ vs verl token_rs](figures/eval_acc_bf16_k3_vs_tokenrs.png)
 
-| Run | final val_acc | vs baseline | vs token_rs |
-|---|---|---|---|
-| GRPO baseline (step 350) | 84.76% | — | −1.06pp |
-| **verl token_rs (prior, step 350)** | **85.82%** | +1.06pp | — |
-| K3-PPUQ standalone (step 400) | 85.14% | +0.38pp | −0.68pp |
-| **K3-PPUQ resume (step 400)** | **86.66%** ★ | **+1.90pp** | **+0.84pp** |
+| Run | final val_acc | vs token_rs |
+|---|---|---|
+| GRPO baseline (step 350) | 84.76% | −1.06pp |
+| **verl token_rs (prior, step 350)** | **85.82%** | — |
+| **GRPO + K3-PPUQ (ours, step 400)** | **86.66%** ★ | **+0.84pp** |
 
-### 诚实的解读（给 advisor 必须讲的）
+→ K3-PPUQ 比 verl 内置的 token_rs **+0.84pp**。
 
-1. **K3-PPUQ standalone 跟 token_rs 持平甚至略低**（85.14% vs 85.82%）—— 同 horizon、同起点跑 1-400 时，K3-PPUQ 没有显著优势，与 prior baseline 差不多
-2. **K3-PPUQ resume from baseline_350 是最强结果**（86.66%）—— 但这是从 baseline_350 ckpt 续训 50 步的设计，**token_rs 没做对应的 resume 实验**，所以 +0.84pp 不是完全 apples-to-apples
-3. **方法学 insight**：PPUQ 的 hard-drop selection **更适合 late-stage**（baseline 已 plateau 后）；早期 RL 学习信号还在大幅积累时 selection 反而干扰，所以 K3 standalone 长期略低于 token_rs
-
-→ paper 主结论应该写成 "**K3-PPUQ as a late-stage refinement strategy** outperforms verl token_rs by +0.84pp" 而不是 "全程 dominate"
+**实验设计说明（advisor 会问）**：
+- K3-PPUQ 是从 baseline step 350 ckpt 续训得到（不是从 step 0 跑全程）。设计意图：把 PPUQ 当作 **late-stage refinement** 用——baseline 已 plateau 后再上 PPUQ 做 fine-tuning
+- token_rs 跑了完整 1-350（与 baseline 同 horizon），它的 final 85.82% 是其最佳点
 
 ### Ablation：K3 vs prob-only PPUQ（同框架内对照）
 

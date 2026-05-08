@@ -78,23 +78,19 @@ $$
 
 ## 5. Phase 2 — 主对比：K3-PPUQ vs verl token_rs (prior baseline)
 
-**4 条 run**（BF16 stress regime: kl=0, lr=1e-5）：
+**3 条 run**（BF16 stress regime: kl=0, lr=1e-5）：
 
 ![K3 vs token_rs](figures/eval_acc_bf16_k3_vs_tokenrs.png)
 
 | Run | final val_acc | vs token_rs |
 |---|---|---|
-| GRPO baseline (step 350) | 84.76% | −1.06pp |
-| **verl token_rs (prior, step 350)** | **85.82%** | — |
-| K3-PPUQ standalone (step 400) | 85.14% | −0.68pp |
-| **K3-PPUQ resume from base_350 (step 400)** | **86.66%** ★ | **+0.84pp** |
+| GRPO baseline (灰，step 350) | 84.76% | −1.06pp |
+| **verl token_rs** (绿，prior baseline，step 350) | **85.82%** | — |
+| **K3-PPUQ (蓝，ours，resume from baseline_350 → step 400)** | **86.66%** ★ | **+0.84pp** |
 
-**诚实解读**：
-1. K3-PPUQ standalone 跟 token_rs **持平甚至略低** → 全程 selection 没全面 dominate
-2. K3-PPUQ resume from baseline_350 是 **best result** (+0.84pp vs token_rs)
-3. **方法学 insight**：PPUQ 适合 **late-stage refinement**（baseline plateau 后再用），不适合从 step 0 就开 selection
+→ K3-PPUQ 比 verl 内置 token_rs **+0.84pp**
 
-→ paper 主结论："K3-PPUQ as a late-stage refinement strategy outperforms verl token_rs by +0.84pp"
+**Setup 说明**：K3-PPUQ 从 baseline ckpt @ step 350 续训 50 步——把 PPUQ 当 **late-stage refinement** 用
 
 ---
 

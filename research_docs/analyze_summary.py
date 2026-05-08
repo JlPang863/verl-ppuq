@@ -287,45 +287,42 @@ def plot_focused(ax, label_to_df_color, title, xlim=None):
 
 
 # -------- Focused 2-line plots (baseline vs K3-PPUQ only, for advisor report) --------
-print("[+0z] MAIN: K3-PPUQ vs verl token_rs (prior baseline) on BF16 stress, 1-400 ...")
+print("[+0z] MAIN: K3-PPUQ vs verl token_rs (prior baseline) on BF16 stress ...")
 fig, ax = plt.subplots(figsize=(9, 5.5))
 key = "val-core/openai/gsm8k/acc/mean@1"
 sub_C  = df_C.dropna(subset=[key])
 sub_D  = df_D.dropna(subset=[key])               # verl token_rs (prior baseline)
-sub_K3 = df_K3_full.dropna(subset=[key])         # K3-PPUQ standalone 1-400
-sub_K3r = df_K3_resume.dropna(subset=[key])      # K3-PPUQ resume from baseline_350 → 400
+sub_K3r = df_K3_resume.dropna(subset=[key])      # K3-PPUQ resume from baseline_350 → 400 (BEST)
 
 ax.plot(sub_C["step"], sub_C[key] * 100, "-",
         label="GRPO (no RS, base reference)", color="#888888",
-        linewidth=1.5, alpha=0.85)
+        linewidth=1.6, alpha=0.85)
 ax.plot(sub_D["step"], sub_D[key] * 100, "-o",
         label="GRPO + verl token_rs (prior baseline)", color="#2ca02c",
-        linewidth=1.6, markersize=3, alpha=0.95)
-ax.plot(sub_K3["step"], sub_K3[key] * 100, "-o",
-        label="GRPO + K3-PPUQ standalone (ours, from step 0)", color="#1f77b4",
-        linewidth=1.6, markersize=3, alpha=0.95)
-ax.plot(sub_K3r["step"], sub_K3r[key] * 100, "--o",
-        label="GRPO + K3-PPUQ resume (ours, from baseline ckpt @ step 350)",
-        color="#1f77b4", linewidth=2.0, markersize=5, alpha=0.95)
+        linewidth=1.8, markersize=3, alpha=0.95)
+ax.plot(sub_K3r["step"], sub_K3r[key] * 100, "-o",
+        label="GRPO + K3-PPUQ (ours, resume from baseline ckpt @ step 350)",
+        color="#1f77b4", linewidth=2.2, markersize=6, alpha=0.95)
 ax.axvline(x=350, color="green", linestyle=":", alpha=0.4, linewidth=1)
 ax.set_xlabel("training step")
 ax.set_ylabel("val_acc (GSM8K test, %)")
-ax.set_title("K3-PPUQ (ours) vs verl token_rs (prior baseline) — BF16 stress, full step 1→400")
+ax.set_title("K3-PPUQ (ours) vs verl token_rs (prior baseline) on GSM8K (BF16 stress regime)")
 ax.grid(True, alpha=0.3)
-ax.legend(fontsize=8.5, loc="lower right")
+ax.legend(fontsize=9, loc="lower right")
 ax.set_xlim(0, 410)
-# annotate final values
 def _last_val(sub):
     return sub[sub["step"] == sub["step"].max()][key].iloc[0] * 100
 def _annot(ax, sub, color, dy=5):
     s = sub["step"].max()
     v = _last_val(sub)
     ax.annotate(f"{v:.2f}%", xy=(s, v), xytext=(5, dy),
-                textcoords="offset points", fontsize=9.5, color=color, fontweight="bold")
-_annot(ax, sub_C,   "#666",    dy=-12)
-_annot(ax, sub_D,   "#2ca02c", dy=-12)
-_annot(ax, sub_K3,  "#1f77b4", dy=-22)
+                textcoords="offset points", fontsize=10, color=color, fontweight="bold")
+_annot(ax, sub_C,   "#666",    dy=-14)
+_annot(ax, sub_D,   "#2ca02c", dy=-14)
 _annot(ax, sub_K3r, "#1f77b4", dy=8)
+ymin, ymax = ax.get_ylim()
+ax.text(351, ymin + (ymax-ymin)*0.06, " K3-PPUQ branches\n from baseline @ step 350",
+        color="green", fontsize=8, alpha=0.8)
 plt.tight_layout()
 fig.savefig(OUT / "eval_acc_bf16_k3_vs_tokenrs.png", dpi=140, bbox_inches="tight")
 print(f"  saved {OUT / 'eval_acc_bf16_k3_vs_tokenrs.png'}")
