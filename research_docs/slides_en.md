@@ -46,37 +46,40 @@ Keep top 60% tokens per response, mask out the rest in PG loss.
 
 ---
 
-## 3. PPUQ method design — three core knobs
+## 3. Phase 2 — PPUQ method design
 
-**P**er-**P**rompt **U**niform **Q**uantile rejection sampling, a new RS mode in verl.
+**P**er-**P**rompt **U**niform **Q**uantile rejection sampling, a new RS mode in verl. Three core knobs:
 
-| Knob | Choice |
-|---|---|
-| **Score** | $K_3 = \exp(\log r) - \log r - 1$<br>$\log r = \log \pi_\text{train} - \log \pi_\text{rollout}$ |
-| **Threshold** | per-prompt quantile $q=0.95$ |
-| **Action** | hard-drop top 5% tokens (PG mask = 0) |
+| Knob | Choice | Rationale |
+|---|---|---|
+| **Score** | $K_3(t) = \exp(\log r) - \log r - 1$<br>$\log r = \log \pi_\text{train}(t) - \log \pi_\text{rollout}(t)$ | KL's unbiased non-negative low-variance estimator; positive = train more confident than rollout (off-policy risky direction) |
+| **Threshold** | per-prompt quantile $q=0.95$ | adapts to each prompt's difficulty, **drops exactly 5% per prompt** |
+| **Action** | hard-drop top 5% tokens<br>(PG mask = 0, KL/ref keep full mask) | direct removal vs. reweighting → avoids high-variance importance sampling |
 
-**Implementation**: [verl/trainer/ppo/rollout_corr_helper.py](../verl/trainer/ppo/rollout_corr_helper.py) `compute_per_prompt_quantile_mask()`
-
----
-
-## 4. PPUQ vs related work
-
-| Method | Score | Threshold | Action |
-|---|---|---|---|
-| Rho-1 (failed) | ref-based excess loss | top-K | hard drop |
-| verl token_rs | K3 KL | global hard threshold | hard drop |
-| AR-Lopti | $-\log \pi_\theta$ | binary η=0.5 | reweight (α-blend) |
-| **K3-PPUQ (ours)** | **K3 KL** | **per-prompt quantile** | hard drop |
-| prob-only PPUQ (control) | $-\log \pi_\text{old}$ | per-prompt quantile | hard drop |
-
-**Two distinguishing features**:
-1. Score = mismatch (K3), not probability → directly aligned with GRPO's off-policy risk
-2. Threshold is per-prompt → guarantees every prompt drops exactly 5%, easy prompts can't dominate
+**Implementation**: [verl/trainer/ppo/rollout_corr_helper.py](../verl/trainer/ppo/rollout_corr_helper.py) — new `compute_per_prompt_quantile_mask()`
 
 ---
 
-## 5. Phase 2 — Main comparison: K3-PPUQ vs verl token_rs (prior baseline)
+## 4. Method comparison: baselines + ours
+
+| Method | Score | Threshold | Action | Type |
+|---|---|---|---|---|
+| **GRPO** | — | — | — | base reference (no RS) |
+| **verl token_rs** | K3 KL | **global hard** = 0.02 | hard drop **+ token-IS reweight** | **prior baseline** |
+| **K3-PPUQ (ours)** | **K3 KL** | **per-prompt quantile** q=0.95 | hard drop only | our method |
+
+**How verl token_rs works** (prior baseline):
+- Compute K3 over all tokens in batch → cut at fixed threshold 0.02 → drop tokens with score > 0.02
+- Reweight kept tokens with token-level importance sampling (clip = 2)
+- Problem: drop ratio is **uncontrolled** (data-dependent: could be 0% or 30% per step); easy prompts drop nothing, hard prompts get all tokens dropped
+
+**K3-PPUQ's two improvements**:
+1. Same K3 KL score (mismatch-aware, like token_rs)
+2. **Threshold becomes per-prompt quantile** → constant 5% drop per prompt regardless of difficulty
+
+---
+
+## 5. Phase 2 main comparison: K3-PPUQ vs verl token_rs (prior baseline)
 
 **Three runs** (BF16 stress regime: kl=0, lr=1e-5):
 
