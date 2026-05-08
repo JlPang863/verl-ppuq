@@ -46,7 +46,56 @@ Keep top 60% tokens per response, mask out the rest in PG loss.
 
 ---
 
-## 3. Phase 2 — Method design: verl token_rs (prior) vs K3-PPUQ (ours)
+## 3. Background: what is token_rs? what is K3 KL?
+
+### token_rs full name = **token-level rejection sampling**
+
+verl's built-in rollout correction module variants:
+
+| Name | Granularity | Description |
+|---|---|---|
+| **`token_k3` / token_rs** | **token** | each token scored independently → keep/drop (**default**) |
+| `seq_k3` / seq_rs | sequence | whole response gets one score → keep/drop entire response |
+| `token_k1`, `token_k2` | token | same as token_rs but with K1 / K2 KL estimator |
+
+→ "verl token_rs" = `token_k3` (K3 estimator + token granularity + global hard threshold)
+
+### K3 is one of three KL divergence estimators (from John Schulman's blog)
+
+Input `log r = log π_train(t) − log π_rollout(t)`:
+
+| Estimator | Formula | Non-negative? | Bias | Variance |
+|---|---|---|---|---|
+| **K1** | $-\log r$ | ❌ can be negative | unbiased | high |
+| **K2** | $\frac{1}{2}(\log r)^2$ | ✅ always ≥ 0 | **biased** | medium |
+| **K3** | $\exp(\log r) - \log r - 1$ | ✅ always ≥ 0 | unbiased | **low (best)** |
+
+K3 satisfies all three: **non-negative + unbiased + low variance** → ideal per-token KL "danger" score
+
+Reference: John Schulman, *Approximating KL Divergence* — http://joschu.net/blog/kl-approx.html
+
+---
+
+## 3b. K3 as a token-level "danger" signal
+
+In GRPO, rollout and train policies differ across PPO update steps (multi-step PPO), so the same token has different probabilities under the two policies.
+
+| K3 value | Physical meaning |
+|---|---|
+| **K3 ≈ 0** | $\pi_\text{train}(t) \approx \pi_\text{rollout}(t)$, two policies agree → off-policy correction ≈ on-policy → **safe** |
+| **K3 large** | Two policies severely disagree on this token → IS ratio is extreme → **gradient variance explodes, risky** |
+| **K3 → ∞** | $\pi_\text{train}$ differs from $\pi_\text{rollout}$ by orders of magnitude → **certain to crash** |
+
+**Two motivations to drop high-K3 tokens**:
+
+1. **Variance control**: high-K3 tokens have IS ratio $r$ far from 1 → gradient $\rho \cdot A$ variance explodes → dropping reduces variance
+2. **Trust region**: equivalent to a token-level trust region ("some tokens' update is already too aggressive, skip this step")
+
+→ verl token_rs and K3-PPUQ **share the K3 score idea**; they only differ in *how the threshold is set* and *whether to reweight the survivors*.
+
+---
+
+## 4. Phase 2 — Method design: verl token_rs (prior) vs K3-PPUQ (ours)
 
 Both methods **share the K3 KL score**; they differ in **threshold + action** design:
 

@@ -46,7 +46,56 @@ $$
 
 ---
 
-## 3. Phase 2 — Method design：verl token_rs (prior) vs K3-PPUQ (ours)
+## 3. 背景：什么是 token_rs？什么是 K3 KL？
+
+### token_rs 全称 = **token-level rejection sampling**
+
+verl 内置 rollout correction 模块的几个变种：
+
+| 名字 | granularity | 描述 |
+|---|---|---|
+| **`token_k3` / token_rs** | **token** | 每个 token 单独算 score 决定 keep/drop（**默认**）|
+| `seq_k3` / seq_rs | sequence | 整条 response 一起算 score，整条 keep / drop |
+| `token_k1`, `token_k2` | token | 同 token 但用 K1 / K2 KL 估计代替 K3 |
+
+→ "verl token_rs" = `token_k3`（K3 estimator + token 粒度 + global hard threshold）
+
+### K3 是 KL divergence 的三种估计量之一（来自 John Schulman 的 blog）
+
+输入 `log r = log π_train(t) − log π_rollout(t)`：
+
+| 估计量 | 公式 | 是否非负 | bias | variance |
+|---|---|---|---|---|
+| **K1** | $-\log r$ | ❌ 可正可负 | unbiased | 高 |
+| **K2** | $\frac{1}{2}(\log r)^2$ | ✅ ≥ 0 | **biased** | 中 |
+| **K3** | $\exp(\log r) - \log r - 1$ | ✅ ≥ 0 | unbiased | **低（最佳）** |
+
+K3 三个性质同时满足：**非负 + 无偏 + 低方差** → 完美的 per-token KL "危险度" 打分
+
+参考：John Schulman, *Approximating KL Divergence* — http://joschu.net/blog/kl-approx.html
+
+---
+
+## 3b. K3 当 token-level "危险度" 信号
+
+在 GRPO 里，rollout 与 train policy 不是同一个（multi-step PPO 之间已 update），同 token 的概率不同。
+
+| K3 数值 | 物理含义 |
+|---|---|
+| **K3 ≈ 0** | $\pi_\text{train}(t) \approx \pi_\text{rollout}(t)$,两个 policy 一致 → off-policy 修正接近 on-policy → **安全** |
+| **K3 大** | 两个 policy 在该 token 上严重不一致 → IS ratio 极端 → **梯度方差爆炸,危险** |
+| **K3 → ∞** | $\pi_\text{train}$ 跟 $\pi_\text{rollout}$ 差几个数量级 → **必崩** |
+
+**Drop 高 K3 token 的两个动机**：
+
+1. **Variance 控制**：高 K3 token 的 IS ratio $r$ 离 1 极远，梯度 $\rho \cdot A$ 方差爆炸 → drop 等于 reduce variance
+2. **Trust region**：等价于一种 token-level trust region（"某些 token 的更新已太激进，先别学这步"）
+
+→ verl token_rs 和 K3-PPUQ **共享 K3 score 这个 idea**，差别只在 *threshold 怎么定* 和 *drop 之后是否再 reweight*。
+
+---
+
+## 4. Phase 2 — Method design：verl token_rs (prior) vs K3-PPUQ (ours)
 
 两种方法**共享 K3 KL score**，差别在 **threshold + action** 怎么设计：
 
