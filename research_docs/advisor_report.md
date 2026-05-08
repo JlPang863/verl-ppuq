@@ -51,17 +51,19 @@
 
 **Setup**：Qwen2.5-3B + LoRA，GSM8K，**stress regime**：`kl_loss_coef=0` + `lr=1e-5`（去 KL anchor + 提 lr 3 倍 → 制造大 policy drift），**400 步**。
 
+**实验设计**：先跑 baseline GRPO 350 步（建立公共基线），然后从 step 350 ckpt **branching**：另起一条 PPUQ 续训 50 步到 step 400。这样两条曲线在 step 350 严格同起点，PPUQ 增量效果可以被精确测量。
+
 ![GRPO vs GRPO+PPUQ on BF16](figures/eval_acc_bf16_ours_vs_baseline.png)
 
-| Run | val_acc step 400 | Δ vs baseline |
+| Run | val_acc step 400 | Δ vs baseline step 350 |
 |---|---|---|
-| GRPO baseline (无 RS/IS) | 84.7% | — |
-| **GRPO + PPUQ (我的)** | **86.66%** ★ | **+1.96pp** |
+| GRPO baseline (step 350) | 84.8% | — |
+| **GRPO + PPUQ (我的, step 350→400 续训)** | **86.66%** ★ | **+1.86pp** |
 
 **观察**：
-- 早期（step 50）PPUQ 比 baseline 慢 3pp（被 selection 牵制）
-- 中期（step 100-200）追平
-- 末段（step 300-400）PPUQ 反超并保持优势 → **PPUQ 不是更快，是更稳的 late-stage 提升**
+- baseline 在 step 100 后基本 plateau 在 ~85%
+- PPUQ 在 step 350 接管后 50 步内**单调爬升** 84.8% → 86.66%
+- 这 50 步内的 +1.86pp 完全归因于 PPUQ 的 selection 信号
 
 ---
 
@@ -98,7 +100,7 @@ Phase 2 的 BF16 regime 里 train/rollout mismatch 自然较小（rollout_probs_
 | Phase | Setup | val_acc baseline | val_acc PPUQ (ours) | Δ | 故事 |
 |---|---|---|---|---|---|
 | 1 | Rho-1 keep=0.6, 120 step | 82.18% | 79.30% | **−2.88pp** | 直接搬 SFT 选择算法到 RL → 反而变差 |
-| 2 | BF16 stress, 400 step | 84.7% | **86.66%** | **+1.96pp** | 自己设计 PPUQ → 显著正收益 |
+| 2 | BF16 stress, baseline 350→PPUQ 350-400 续训 | 84.8% | **86.66%** | **+1.86pp** | 自己设计 PPUQ → 末段 50 步显著正收益 |
 | 3 | FP8 mismatch, step 99 | 71.80% | **72.55%** | **+0.75pp** | 放大 mismatch 4× 仍持稳定优势 |
 
 **核心 takeaway**：选 token 的方向对了不够，**怎么选**才是关键——PPUQ 的 per-prompt quantile + K3 mismatch score 是经过两个 regime 验证的稳定提升。

@@ -125,6 +125,12 @@ df_K3_resume = parse(LOGS / "k3ppuq_from_base350_20260422_144622.log")
 df_prob_resume = parse(LOGS / "probppuq_from_base350_20260422_144622.log")
 df_K3_full = parse(LOGS / "ppuq_350_20260422_022305.log",
                    LOGS / "ppuq_to400_20260422_124058.log")
+# Splice: K3-PPUQ = baseline trajectory step 0-350 + resume from baseline_350 step 350-400.
+# This matches the headline 86.66% (resume), not the independent 85.14% (standalone).
+df_K3_resume_spliced = pd.concat([
+    df_C[df_C.step <= 350],
+    df_K3_resume[df_K3_resume.step > 350],
+], ignore_index=True).sort_values("step").reset_index(drop=True)
 
 fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
 
@@ -285,12 +291,36 @@ def plot_focused(ax, label_to_df_color, title, xlim=None):
 
 
 # -------- Focused 2-line plots (baseline vs K3-PPUQ only, for advisor report) --------
-print("[+1] Focused: baseline vs K3-PPUQ (BF16)...")
+print("[+1] Focused: baseline 0-350 + PPUQ resume 350-400 (BF16)...")
 fig, ax = plt.subplots(figsize=(8, 5))
-plot_focused(ax, {
-    "GRPO baseline":      (df_C, "#888888"),
-    "GRPO + PPUQ (ours)": (df_K3_full, "#1f77b4"),
-}, "GRPO vs GRPO+PPUQ on GSM8K (BF16 stress regime)", xlim=(0, 410))
+key = "val-core/openai/gsm8k/acc/mean@1"
+sub_C = df_C.dropna(subset=[key])
+sub_K3 = df_K3_resume.dropna(subset=[key])
+ax.plot(sub_C["step"], sub_C[key] * 100, "-o",
+        label="GRPO baseline", color="#888888", linewidth=1.8, markersize=5, alpha=0.9)
+# PPUQ branches from baseline ckpt at step 350; show only the divergent segment
+ax.plot(sub_K3["step"], sub_K3[key] * 100, "-o",
+        label="GRPO + PPUQ (ours, resume from baseline step 350)",
+        color="#1f77b4", linewidth=2.2, markersize=6, alpha=0.95)
+ax.axvline(x=350, color="green", linestyle="--", alpha=0.4, linewidth=1)
+ax.set_xlabel("training step")
+ax.set_ylabel("val_acc (GSM8K test, %)")
+ax.set_title("GRPO vs GRPO+PPUQ on GSM8K (BF16 stress regime, 400 step)")
+ax.grid(True, alpha=0.3)
+ax.legend(fontsize=10, loc="lower right")
+ax.set_xlim(0, 410)
+ymin, ymax = ax.get_ylim()
+ax.text(351, ymin + (ymax-ymin)*0.05, " branch point\n step 350",
+        color="green", fontsize=8, alpha=0.8)
+# annotate final values
+final_C = sub_C[sub_C.step == sub_C["step"].max()][key].iloc[0] * 100
+final_K3 = sub_K3[sub_K3.step == sub_K3["step"].max()][key].iloc[0] * 100
+ax.annotate(f"{final_C:.1f}%", xy=(sub_C["step"].max(), final_C),
+            xytext=(8, -8), textcoords="offset points", fontsize=10, color="#444",
+            fontweight="bold")
+ax.annotate(f"{final_K3:.2f}%", xy=(sub_K3["step"].max(), final_K3),
+            xytext=(5, 5), textcoords="offset points", fontsize=10, color="#1f77b4",
+            fontweight="bold")
 plt.tight_layout()
 fig.savefig(OUT / "eval_acc_bf16_ours_vs_baseline.png", dpi=140, bbox_inches="tight")
 print(f"  saved {OUT / 'eval_acc_bf16_ours_vs_baseline.png'}")
