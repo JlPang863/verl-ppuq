@@ -75,40 +75,36 @@ def plot_val_curve(ax, dfs_dict, title, xlim=None):
         ax.set_xlim(xlim)
 
 
-# -------- 1. Rho-1 first attempt (failed) --------
-print("[1/4] Rho-1 vs baseline (early)...")
-baseline_early = parse(*LOGS.glob("run_demo_*.log"), *LOGS.glob("baseline_*.log"))
-# look for rho1 related logs
-rho1_logs = list(LOGS.glob("rho1*.log")) + list(LOGS.glob("run_*rho*.log"))
-df_rho1 = parse(*rho1_logs) if rho1_logs else pd.DataFrame()
+# -------- 1. Rho-1 first attempt (failed) — actual val_acc curve --------
+print("[1/4] Rho-1 vs baseline curve (Phase 1)...")
+df_baseline_p1 = parse(LOGS / "run_20260420_183144.log",
+                       LOGS / "baseline_resume_20260420_224145.log")
+df_rho1_p1 = parse(LOGS / "rho1_20260420_215802.log",
+                   LOGS / "rho1_resume_20260420_224148.log")
 
-# As fallback, embed the doc-recorded values directly
-fig, axes = plt.subplots(1, 2, figsize=(11, 4))
-# Subplot 1: val acc
-ax = axes[0]
-ax.bar(["baseline\n(LoRA, 120 step)", "Rho-1 keep=0.6\n(LoRA, 120 step)"],
-       [82.18, 79.30],
-       color=[COLORS["baseline"], COLORS["rho1"]])
-for i, v in enumerate([82.18, 79.30]):
-    ax.text(i, v + 0.4, f"{v}%", ha="center", fontsize=10, fontweight="bold")
-ax.set_ylim([75, 85])
-ax.set_ylabel("val_acc step 120 (%)")
-ax.set_title("Rho-1 first attempt: −2.88pp vs baseline")
-ax.grid(True, alpha=0.3, axis="y")
-
-# Subplot 2: kl_loss (as fail signature)
-ax = axes[1]
-ax.bar(["baseline", "Rho-1 keep=0.6"], [0.0094, 0.0080],
-       color=[COLORS["baseline"], COLORS["rho1"]])
-for i, v in enumerate([0.0094, 0.0080]):
-    ax.text(i, v * 1.02, f"{v:.4f}", ha="center", fontsize=10)
-ax.set_ylim([0, 0.012])
-ax.set_ylabel("actor/kl_loss step 120")
-ax.set_title("Rho-1 makes policy MORE conservative (-14% KL)\n=> slower learning, not safer")
-ax.grid(True, alpha=0.3, axis="y")
-
-plt.suptitle("Phase 1 (Rho-1, 2026-04-20): score direction OK but selection picks wrong tokens",
-             fontsize=11, fontweight="bold")
+fig, ax = plt.subplots(figsize=(8, 5))
+key = "val-core/openai/gsm8k/acc/mean@1"
+sub_b = df_baseline_p1.dropna(subset=[key])
+sub_r = df_rho1_p1.dropna(subset=[key])
+ax.plot(sub_b["step"], sub_b[key] * 100, "-o",
+        label="GRPO baseline", color="#888888", linewidth=1.8, markersize=5, alpha=0.95)
+ax.plot(sub_r["step"], sub_r[key] * 100, "-o",
+        label="GRPO + Rho-1 keep=60%", color="#d62728", linewidth=1.8, markersize=5, alpha=0.95)
+ax.set_xlabel("training step")
+ax.set_ylabel("val_acc (GSM8K test, %)")
+ax.set_title("GRPO vs GRPO+Rho-1 on GSM8K (BF16, LoRA, kl=0.001, lr=3e-6)")
+ax.grid(True, alpha=0.3)
+ax.legend(fontsize=10, loc="lower right")
+ax.set_xlim(0, 122)
+# annotate final values at step 120
+final_b = sub_b[sub_b.step == sub_b["step"].max()][key].iloc[0] * 100
+final_r = sub_r[sub_r.step == sub_r["step"].max()][key].iloc[0] * 100
+ax.annotate(f"{final_b:.2f}%", xy=(sub_b["step"].max(), final_b),
+            xytext=(5, 5), textcoords="offset points", fontsize=10, color="#444",
+            fontweight="bold")
+ax.annotate(f"{final_r:.2f}%", xy=(sub_r["step"].max(), final_r),
+            xytext=(5, -12), textcoords="offset points", fontsize=10, color="#d62728",
+            fontweight="bold")
 plt.tight_layout()
 fig.savefig(OUT / "summary_rho1_vs_baseline.png", dpi=140, bbox_inches="tight")
 print(f"  saved {OUT / 'summary_rho1_vs_baseline.png'}")
