@@ -46,36 +46,32 @@ $$
 
 ---
 
-## 3. Phase 2 — PPUQ 方法设计
+## 3. Phase 2 — Method design：verl token_rs (prior) vs K3-PPUQ (ours)
 
-**P**er-**P**rompt **U**niform **Q**uantile rejection sampling，verl 内新 RS mode。3 个核心旋钮：
+两种方法**共享 K3 KL score**，差别在 **threshold + action** 怎么设计：
 
-| 旋钮 | 选择 | 设计理由 |
+| 旋钮 | **verl token_rs** (prior baseline) | **K3-PPUQ** (ours) |
 |---|---|---|
-| **Score** | $K_3(t) = \exp(\log r) - \log r - 1$<br>$\log r = \log \pi_\text{train}(t) - \log \pi_\text{rollout}(t)$ | KL 的 unbiased 非负低方差 estimator;正值 = train 比 rollout 更自信(off-policy 危险方向) |
-| **Threshold** | per-prompt quantile $q=0.95$ | 适应每个 prompt 难度,**每个 prompt 都精确 drop 5%** |
-| **Action** | hard-drop top 5% token<br>(PG mask = 0,KL/ref 仍 full mask) | 直接砍而不是 reweight,避免 IS 高方差 |
+| **Score** | $K_3(t) = \exp(\log r) - \log r - 1$，$\log r = \log \pi_\text{train} - \log \pi_\text{rollout}$ | 同左 |
+| **Threshold** | **全局 hard threshold** = 0.02 | **per-prompt quantile** $q=0.95$ |
+| **Action** | hard drop **+ token-IS reweight** ($w = \min(\pi_\text{train}/\pi_\text{rollout}, 2)$) | hard drop only |
 
-**实现**：[verl/trainer/ppo/rollout_corr_helper.py](../verl/trainer/ppo/rollout_corr_helper.py) 新增 `compute_per_prompt_quantile_mask()`
+### 各自的设计哲学
 
----
+**verl token_rs 为什么这么设计**：
+1. **Score K3 KL**：同我们的理由——KL unbiased 非负 estimator，per-token 当"危险度"用
+2. **Global hard threshold**：把 "off-policy 危险" 看成一个**通用的物理量**——只要 K3 > 0.02 就是危险，不管它在哪个 prompt 里。简单实现，无需 batch 内排序。
+3. **+ token-IS reweight**：保留下来的 token 再加 IS 权重 → 让 PG estimator 更接近 unbiased on-policy gradient（标准 PPO off-policy correction 思路）
 
-## 4. 三种方法对比 (baselines + ours)
+**K3-PPUQ 为什么改设计**：
+1. **同 K3 score**——这一点 prior baseline 已经做对了，不动
+2. **Per-prompt quantile**：把 "off-policy 危险" 看成 **prompt 内的相对量**——困难 prompt 整体 K3 都偏高，简单 prompt 整体偏低。global threshold 会让简单 prompt 一个不 drop / 困难 prompt 全 drop。**per-prompt 保证每个 prompt 都恒定 drop 5%**，drop 比例可控
+3. **去掉 IS reweight**：IS 在 high-mismatch token 上方差极大，clip 后仍会 destabilize；既然已经 hard drop 了高 K3 token，就不需要再 reweight 了——pure selection
 
-| 方法 | Score | Threshold | Action | 类型 |
-|---|---|---|---|---|
-| **GRPO** | — | — | — | base reference (no RS) |
-| **verl token_rs** | K3 KL | **global hard** = 0.02 | hard drop **+ token-IS reweight** | **prior baseline** |
-| **K3-PPUQ (ours)** | **K3 KL** | **per-prompt quantile** q=0.95 | hard drop only | our method |
+### 设计哲学对比一句话
 
-**verl token_rs 怎么做的**：
-- 整 batch 所有 token 一起算 K3 → 用固定 threshold 0.02 切一刀 → score > 0.02 drop
-- 保留的 token 再加 token-level IS 权重 (clip = 2)
-- 问题：drop 比例**不可控**（看 batch 而定，可能 0% 也可能 30%），简单 prompt 一个不 drop / 困难 prompt 全 drop
-
-**K3-PPUQ 的两个改进**：
-1. Score 还是用 K3 KL（mismatch-aware，跟 token_rs 一样）
-2. **Threshold 改成 per-prompt quantile** → 每 prompt 都恒定 drop 5%，不论难度
+> **token_rs**：把 RS 当 "noise filter"——drop 危险的 + IS reweight 修正其余
+> **K3-PPUQ**：把 RS 当 "selection"——每个 prompt 都精确 drop 5% top-K3 token，不 reweight
 
 ---
 

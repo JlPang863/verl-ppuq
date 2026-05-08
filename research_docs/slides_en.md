@@ -46,36 +46,32 @@ Keep top 60% tokens per response, mask out the rest in PG loss.
 
 ---
 
-## 3. Phase 2 — PPUQ method design
+## 3. Phase 2 — Method design: verl token_rs (prior) vs K3-PPUQ (ours)
 
-**P**er-**P**rompt **U**niform **Q**uantile rejection sampling, a new RS mode in verl. Three core knobs:
+Both methods **share the K3 KL score**; they differ in **threshold + action** design:
 
-| Knob | Choice | Rationale |
+| Knob | **verl token_rs** (prior baseline) | **K3-PPUQ** (ours) |
 |---|---|---|
-| **Score** | $K_3(t) = \exp(\log r) - \log r - 1$<br>$\log r = \log \pi_\text{train}(t) - \log \pi_\text{rollout}(t)$ | KL's unbiased non-negative low-variance estimator; positive = train more confident than rollout (off-policy risky direction) |
-| **Threshold** | per-prompt quantile $q=0.95$ | adapts to each prompt's difficulty, **drops exactly 5% per prompt** |
-| **Action** | hard-drop top 5% tokens<br>(PG mask = 0, KL/ref keep full mask) | direct removal vs. reweighting → avoids high-variance importance sampling |
+| **Score** | $K_3(t) = \exp(\log r) - \log r - 1$, $\log r = \log \pi_\text{train} - \log \pi_\text{rollout}$ | same |
+| **Threshold** | **global hard threshold** = 0.02 | **per-prompt quantile** $q=0.95$ |
+| **Action** | hard drop **+ token-IS reweight** ($w = \min(\pi_\text{train}/\pi_\text{rollout}, 2)$) | hard drop only |
 
-**Implementation**: [verl/trainer/ppo/rollout_corr_helper.py](../verl/trainer/ppo/rollout_corr_helper.py) — new `compute_per_prompt_quantile_mask()`
+### Each method's design rationale
 
----
+**Why verl token_rs picks this design**:
+1. **K3 KL score**: same reasoning — unbiased non-negative KL estimator, used as per-token "danger score"
+2. **Global hard threshold**: treats "off-policy risk" as a **universal physical quantity** — any token with K3 > 0.02 is dangerous regardless of which prompt it belongs to. Simple, no batch-internal sorting needed.
+3. **+ token-IS reweight**: kept tokens get IS weights → makes the PG estimator closer to unbiased on-policy gradient (standard PPO off-policy correction)
 
-## 4. Method comparison: baselines + ours
+**Why K3-PPUQ changes the design**:
+1. **Same K3 score** — prior baseline got this right, no need to change
+2. **Per-prompt quantile**: treats "off-policy risk" as a **prompt-relative quantity** — hard prompts naturally have higher overall K3, easy prompts lower. A global threshold lets easy prompts drop nothing while hard prompts get every token dropped. **Per-prompt q=0.95 ensures every prompt drops exactly 5%**, controlled drop ratio.
+3. **Drop the IS reweight**: IS variance explodes on high-mismatch tokens; clipping helps but still destabilizes. Since high-K3 tokens are already hard-dropped, reweighting the rest is unnecessary — pure selection.
 
-| Method | Score | Threshold | Action | Type |
-|---|---|---|---|---|
-| **GRPO** | — | — | — | base reference (no RS) |
-| **verl token_rs** | K3 KL | **global hard** = 0.02 | hard drop **+ token-IS reweight** | **prior baseline** |
-| **K3-PPUQ (ours)** | **K3 KL** | **per-prompt quantile** q=0.95 | hard drop only | our method |
+### Design philosophy in one line
 
-**How verl token_rs works** (prior baseline):
-- Compute K3 over all tokens in batch → cut at fixed threshold 0.02 → drop tokens with score > 0.02
-- Reweight kept tokens with token-level importance sampling (clip = 2)
-- Problem: drop ratio is **uncontrolled** (data-dependent: could be 0% or 30% per step); easy prompts drop nothing, hard prompts get all tokens dropped
-
-**K3-PPUQ's two improvements**:
-1. Same K3 KL score (mismatch-aware, like token_rs)
-2. **Threshold becomes per-prompt quantile** → constant 5% drop per prompt regardless of difficulty
+> **token_rs**: treats RS as a "noise filter" — drop dangerous + IS-reweight the rest
+> **K3-PPUQ**: treats RS as a "selection" — every prompt drops top 5% K3, no reweighting
 
 ---
 
