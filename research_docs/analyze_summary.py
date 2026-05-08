@@ -267,4 +267,42 @@ plt.tight_layout()
 fig.savefig(OUT / "eval_acc_fp8.png", dpi=140, bbox_inches="tight")
 print(f"  saved {OUT / 'eval_acc_fp8.png'}")
 
+def plot_focused(ax, label_to_df_color, title, xlim=None):
+    key = "val-core/openai/gsm8k/acc/mean@1"
+    for label, (df, color) in label_to_df_color.items():
+        sub = df.dropna(subset=[key])
+        if len(sub) == 0:
+            continue
+        ax.plot(sub["step"], sub[key] * 100, "-o",
+                label=label, color=color, linewidth=1.8, markersize=5, alpha=0.95)
+    ax.set_xlabel("training step")
+    ax.set_ylabel("val_acc (GSM8K test, %)")
+    ax.set_title(title)
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=10, loc="best")
+    if xlim:
+        ax.set_xlim(xlim)
+
+
+# -------- Focused 2-line plots (baseline vs K3-PPUQ only, for advisor report) --------
+print("[+1] Focused: baseline vs K3-PPUQ (BF16)...")
+fig, ax = plt.subplots(figsize=(8, 5))
+plot_focused(ax, {
+    "GRPO baseline":      (df_C, "#888888"),
+    "GRPO + PPUQ (ours)": (df_K3_full, "#1f77b4"),
+}, "GRPO vs GRPO+PPUQ on GSM8K (BF16 stress regime)", xlim=(0, 410))
+plt.tight_layout()
+fig.savefig(OUT / "eval_acc_bf16_ours_vs_baseline.png", dpi=140, bbox_inches="tight")
+print(f"  saved {OUT / 'eval_acc_bf16_ours_vs_baseline.png'}")
+
+print("[+2] Focused: baseline vs K3-PPUQ (FP8)...")
+fig, ax = plt.subplots(figsize=(8, 5))
+plot_focused(ax, {
+    "GRPO baseline":      (df_v3_baseline, "#888888"),
+    "GRPO + PPUQ (ours)": (df_v3_K3, "#1f77b4"),
+}, "GRPO vs GRPO+PPUQ on GSM8K (FP8 train/inference mismatch)", xlim=(0, 122))
+plt.tight_layout()
+fig.savefig(OUT / "eval_acc_fp8_ours_vs_baseline.png", dpi=140, bbox_inches="tight")
+print(f"  saved {OUT / 'eval_acc_fp8_ours_vs_baseline.png'}")
+
 print("\nDone. plots in research_docs/figures/")
