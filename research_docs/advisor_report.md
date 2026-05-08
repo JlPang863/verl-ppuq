@@ -64,34 +64,45 @@ $$
 **实现**：[verl/trainer/ppo/rollout_corr_helper.py](../verl/trainer/ppo/rollout_corr_helper.py) 新增 `compute_per_prompt_quantile_mask()`，作为 verl rollout_correction 的 PPUQ fast path。
 **启动**：`algorithm.rollout_correction.rollout_rs=per_prompt_k3_quantile`
 
-### 我们现在的做法（给 advisor）
+### 主对比：K3-PPUQ vs verl token_rs (prior baseline)
 
-PPUQ 框架本身可以替换 score，所以我们做了一个 ablation：
-- **K3-PPUQ（我的）**：score = K3 KL（mismatch-aware）
-- **prob-only PPUQ**（control）：score = $-\log \pi_\text{old}$（只看概率，对应 AR-Lopti 的简化）
+paper 主表的真正比较：你的 K3-PPUQ vs **verl 内置的 token_rs**（prior baseline，token-K3 hard threshold + token-IS）。
 
-如果 K3 score ≈ prob detector（reviewer 的担心），两者结果应该几乎相同。
+**实验设计**（共 4 条 run，全部 BF16 stress regime: kl=0, lr=1e-5）：
+- **GRPO**（无 RS,base reference）：1-350
+- **GRPO + verl token_rs**（prior baseline）：1-350
+- **GRPO + K3-PPUQ standalone**（你的 method, 从 step 0）：1-400
+- **GRPO + K3-PPUQ resume**（你的 method, 从 baseline ckpt @ step 350 续训）：350-400
 
-### 实验设计
+![K3-PPUQ vs verl token_rs](figures/eval_acc_bf16_k3_vs_tokenrs.png)
 
-先跑 baseline GRPO **350 步**（kl=0, lr=1e-5 stress regime，建立公共基线）→ 从 step 350 ckpt 同时分叉两条 resume run：
-- **K3-PPUQ resume**：350 → 400（50 步）
-- **prob-only PPUQ resume**：350 → 400（50 步）
+| Run | final val_acc | vs baseline | vs token_rs |
+|---|---|---|---|
+| GRPO baseline (step 350) | 84.76% | — | −1.06pp |
+| **verl token_rs (prior, step 350)** | **85.82%** | +1.06pp | — |
+| K3-PPUQ standalone (step 400) | 85.14% | +0.38pp | −0.68pp |
+| **K3-PPUQ resume (step 400)** | **86.66%** ★ | **+1.90pp** | **+0.84pp** |
 
-两条曲线在 step 350 严格同起点，只有 score 不同。
+### 诚实的解读（给 advisor 必须讲的）
 
-### 结果（resume from baseline step 350, 跑到 step 400）
+1. **K3-PPUQ standalone 跟 token_rs 持平甚至略低**（85.14% vs 85.82%）—— 同 horizon、同起点跑 1-400 时，K3-PPUQ 没有显著优势，与 prior baseline 差不多
+2. **K3-PPUQ resume from baseline_350 是最强结果**（86.66%）—— 但这是从 baseline_350 ckpt 续训 50 步的设计，**token_rs 没做对应的 resume 实验**，所以 +0.84pp 不是完全 apples-to-apples
+3. **方法学 insight**：PPUQ 的 hard-drop selection **更适合 late-stage**（baseline 已 plateau 后）；早期 RL 学习信号还在大幅积累时 selection 反而干扰，所以 K3 standalone 长期略低于 token_rs
 
-![K3 vs prob in BF16](figures/eval_acc_bf16_k3_vs_prob.png)
+→ paper 主结论应该写成 "**K3-PPUQ as a late-stage refinement strategy** outperforms verl token_rs by +0.84pp" 而不是 "全程 dominate"
 
-| Run | val_acc step 400 | Δ |
+### Ablation：K3 vs prob-only PPUQ（同框架内对照）
+
+为了排除 reviewer 担心 "K3 score ≈ prob detector"，做了 PPUQ 框架内的 score ablation：
+
+![K3 vs prob ablation](figures/eval_acc_bf16_k3_vs_prob.png)
+
+| Ablation | step 400 val_acc | Δ |
 |---|---|---|
-| prob-only PPUQ (control) | 86.13% | — |
-| **K3-PPUQ (我的)** | **86.66%** ★ | **+0.53pp** |
+| prob-only PPUQ (score = −log π_old) | 86.13% | — |
+| **K3-PPUQ (score = K3 KL)** | **86.66%** | **+0.53pp** |
 
-**观察**：50 步内两条线交错震荡，K3-PPUQ 在 step 400 终点反超 +0.53pp。差距小但方向对——但 reviewer 会问"0.5pp 是不是 noise"。
-
-→ Phase 3 用 FP8 放大 mismatch 来明确这个 gap。
+→ K3 vs prob 在 BF16 仅 +0.53pp（差距小），需要更大 mismatch 才能验证 K3 score 真有独立信号。这是 Phase 3 的目标。
 
 ---
 

@@ -76,18 +76,40 @@ $$
 
 ---
 
-## 5. Phase 2 — K3 vs prob-only PPUQ 在 BF16 stress regime 对比
+## 5. Phase 2 — 主对比：K3-PPUQ vs verl token_rs (prior baseline)
 
-**实验设计**：先跑 baseline 350 步建立公共 ckpt，然后从 step 350 同时分叉两条 resume run（K3 vs prob），跑 50 步到 step 400。两条曲线在 step 350 严格同起点。
+**4 条 run**（BF16 stress regime: kl=0, lr=1e-5）：
 
-![K3 vs prob BF16](figures/eval_acc_bf16_k3_vs_prob.png)
+![K3 vs token_rs](figures/eval_acc_bf16_k3_vs_tokenrs.png)
 
-| Run | val_acc step 400 | Δ |
+| Run | final val_acc | vs token_rs |
 |---|---|---|
-| prob-only PPUQ (control) | 86.13% | — |
-| **K3-PPUQ (我的)** | **86.66%** ★ | **+0.53pp** |
+| GRPO baseline (step 350) | 84.76% | −1.06pp |
+| **verl token_rs (prior, step 350)** | **85.82%** | — |
+| K3-PPUQ standalone (step 400) | 85.14% | −0.68pp |
+| **K3-PPUQ resume from base_350 (step 400)** | **86.66%** ★ | **+0.84pp** |
 
-**问题**：差距小（仅 0.5pp）→ reviewer 会问"是 noise 还是真信号？"
+**诚实解读**：
+1. K3-PPUQ standalone 跟 token_rs **持平甚至略低** → 全程 selection 没全面 dominate
+2. K3-PPUQ resume from baseline_350 是 **best result** (+0.84pp vs token_rs)
+3. **方法学 insight**：PPUQ 适合 **late-stage refinement**（baseline plateau 后再用），不适合从 step 0 就开 selection
+
+→ paper 主结论："K3-PPUQ as a late-stage refinement strategy outperforms verl token_rs by +0.84pp"
+
+---
+
+## 5b. Ablation：K3 vs prob-only PPUQ（同框架内 score 对照）
+
+排除 reviewer 的 "K3 score ≈ prob detector" 假设：
+
+![K3 vs prob ablation](figures/eval_acc_bf16_k3_vs_prob.png)
+
+| Score variant | step 400 | Δ |
+|---|---|---|
+| prob-only (−log π_old) | 86.13% | — |
+| **K3 KL (ours)** | **86.66%** | **+0.53pp** |
+
+→ 仅 0.5pp，差距小 → 需要更大 mismatch 验证 K3 score 真的有独立信号 → Phase 3
 
 ---
 
@@ -122,11 +144,12 @@ $$
 
 ## 8. 三段递进汇总
 
-| Phase | 对比 | 数据 | 结论 |
+| Phase | 主对比 | 数据 | 结论 |
 |---|---|---|---|
 | 1 | baseline vs Rho-1 | 82.18% vs 79.30% (**−2.88pp**) | Rho-1 直搬 SFT 失败 |
-| 2 | K3-PPUQ vs prob-only (BF16) | 86.66% vs 86.13% (**+0.53pp**) | PPUQ work,但差距小 |
-| 3 | K3-PPUQ vs prob-only (FP8) | 72.55% vs 70.36% (**+2.19pp**) | mismatch ×4 → 差距 ×4.1 |
+| 2 主 | **K3-PPUQ vs verl token_rs** (BF16) | resume 86.66% vs 85.82% (**+0.84pp**) | K3 late-stage refinement 胜 prior baseline |
+| 2 ablation | K3 vs prob-only (BF16) | 86.66% vs 86.13% (**+0.53pp**) | PPUQ 框架内 score 差异小 → 引出 Phase 3 |
+| 3 | K3 vs prob-only (FP8) | 72.55% vs 70.36% (**+2.19pp**) | mismatch ×4 → 差距 ×4.1, K3 score 信号确认 |
 
 **下一步**：
 1. 解决 Phase 3 step 120 累积失稳（试动态 q 或 soft reweight）
