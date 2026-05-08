@@ -287,6 +287,65 @@ def plot_focused(ax, label_to_df_color, title, xlim=None):
 
 
 # -------- Focused 2-line plots (baseline vs K3-PPUQ only, for advisor report) --------
+print("[+0a] Focused: K3-PPUQ vs prob-only PPUQ (BF16, 350→400 resume)...")
+fig, ax = plt.subplots(figsize=(8, 5))
+key = "val-core/openai/gsm8k/acc/mean@1"
+sub_K3r = df_K3_resume.dropna(subset=[key])
+sub_probr = df_prob_resume.dropna(subset=[key])
+ax.plot(sub_K3r["step"], sub_K3r[key] * 100, "-o",
+        label="K3-PPUQ (ours, K3 KL score)", color="#1f77b4", linewidth=2.0, markersize=6, alpha=0.95)
+ax.plot(sub_probr["step"], sub_probr[key] * 100, "-o",
+        label="prob-only PPUQ (control, −log π_old score)", color="#ff7f0e", linewidth=2.0, markersize=6, alpha=0.95)
+ax.set_xlabel("training step")
+ax.set_ylabel("val_acc (GSM8K test, %)")
+ax.set_title("K3-PPUQ vs prob-only PPUQ on GSM8K (BF16 stress, resume from baseline step 350)")
+ax.grid(True, alpha=0.3)
+ax.legend(fontsize=10, loc="lower right")
+ax.set_xlim(350, 400)
+final_K3r = sub_K3r[sub_K3r.step == sub_K3r["step"].max()][key].iloc[0] * 100
+final_probr = sub_probr[sub_probr.step == sub_probr["step"].max()][key].iloc[0] * 100
+ax.annotate(f"{final_K3r:.2f}%", xy=(sub_K3r["step"].max(), final_K3r),
+            xytext=(5, 5), textcoords="offset points", fontsize=10, color="#1f77b4", fontweight="bold")
+ax.annotate(f"{final_probr:.2f}%", xy=(sub_probr["step"].max(), final_probr),
+            xytext=(5, -12), textcoords="offset points", fontsize=10, color="#ff7f0e", fontweight="bold")
+plt.tight_layout()
+fig.savefig(OUT / "eval_acc_bf16_k3_vs_prob.png", dpi=140, bbox_inches="tight")
+print(f"  saved {OUT / 'eval_acc_bf16_k3_vs_prob.png'}")
+
+print("[+0b] Focused: K3-PPUQ vs prob-only PPUQ (FP8)...")
+fig, ax = plt.subplots(figsize=(8, 5))
+sub_K3v3 = df_v3_K3.dropna(subset=[key])
+sub_probv3 = df_v3_prob.dropna(subset=[key])
+ax.plot(sub_K3v3["step"], sub_K3v3[key] * 100, "-o",
+        label="K3-PPUQ (ours, K3 KL score)", color="#1f77b4", linewidth=2.0, markersize=6, alpha=0.95)
+ax.plot(sub_probv3["step"], sub_probv3[key] * 100, "-o",
+        label="prob-only PPUQ (control, −log π_old score)", color="#ff7f0e", linewidth=2.0, markersize=6, alpha=0.95)
+ax.set_xlabel("training step")
+ax.set_ylabel("val_acc (GSM8K test, %)")
+ax.set_title("K3-PPUQ vs prob-only PPUQ on GSM8K (FP8 train/inference mismatch, ~4× larger)")
+ax.grid(True, alpha=0.3)
+ax.legend(fontsize=10, loc="lower left")
+ax.set_xlim(0, 122)
+# best stable ckpt at step 99 (before crash)
+ax.axvline(x=99, color="green", linestyle="--", alpha=0.4, linewidth=1)
+ymin, ymax = ax.get_ylim()
+ax.text(100, ymin + (ymax-ymin)*0.85, " step 99\n best stable ckpt", color="green", fontsize=8, alpha=0.8)
+# annotate step 99 values
+v_K3_99 = sub_K3v3[sub_K3v3.step == 99][key]
+v_prob_99 = sub_probv3[sub_probv3.step == 99][key]
+if len(v_K3_99) > 0 and len(v_prob_99) > 0:
+    ax.annotate(f"K3 step 99: {v_K3_99.iloc[0]*100:.2f}%",
+                xy=(99, v_K3_99.iloc[0]*100),
+                xytext=(-90, -25), textcoords="offset points", fontsize=10, color="#1f77b4",
+                fontweight="bold", arrowprops=dict(arrowstyle="->", color="#1f77b4", alpha=0.5))
+    ax.annotate(f"prob step 99: {v_prob_99.iloc[0]*100:.2f}%",
+                xy=(99, v_prob_99.iloc[0]*100),
+                xytext=(-90, -45), textcoords="offset points", fontsize=10, color="#ff7f0e",
+                fontweight="bold", arrowprops=dict(arrowstyle="->", color="#ff7f0e", alpha=0.5))
+plt.tight_layout()
+fig.savefig(OUT / "eval_acc_fp8_k3_vs_prob.png", dpi=140, bbox_inches="tight")
+print(f"  saved {OUT / 'eval_acc_fp8_k3_vs_prob.png'}")
+
 print("[+1] Focused: baseline 0-350 + PPUQ resume 350-400 (BF16)...")
 fig, ax = plt.subplots(figsize=(8, 5))
 key = "val-core/openai/gsm8k/acc/mean@1"
