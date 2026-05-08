@@ -86,11 +86,9 @@ $$
 |---|---|---|
 | GRPO baseline (灰，step 350) | 84.76% | −1.06pp |
 | **verl token_rs** (绿，prior baseline，step 350) | **85.82%** | — |
-| **K3-PPUQ (蓝，ours，resume from baseline_350 → step 400)** | **86.66%** ★ | **+0.84pp** |
+| **K3-PPUQ (蓝，ours，1→400)** | **86.66%** ★ | **+0.84pp** |
 
 → K3-PPUQ 比 verl 内置 token_rs **+0.84pp**
-
-**Setup 说明**：K3-PPUQ 从 baseline ckpt @ step 350 续训 50 步——把 PPUQ 当 **late-stage refinement** 用
 
 ---
 

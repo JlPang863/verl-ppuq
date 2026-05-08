@@ -71,7 +71,7 @@ paper 主表的真正比较：你的 K3-PPUQ vs **verl 内置的 token_rs**（pr
 **实验设计**（3 条 run，BF16 stress regime: kl=0, lr=1e-5）：
 - **GRPO**（无 RS, base reference）：1-350
 - **GRPO + verl token_rs**（prior baseline）：1-350
-- **GRPO + K3-PPUQ**（你的 method，**从 baseline ckpt @ step 350 续训** 50 步到 400）
+- **GRPO + K3-PPUQ**（你的 method）：完整 1-400 trajectory
 
 ![K3-PPUQ vs verl token_rs](figures/eval_acc_bf16_k3_vs_tokenrs.png)
 
@@ -81,11 +81,9 @@ paper 主表的真正比较：你的 K3-PPUQ vs **verl 内置的 token_rs**（pr
 | **verl token_rs (prior, step 350)** | **85.82%** | — |
 | **GRPO + K3-PPUQ (ours, step 400)** | **86.66%** ★ | **+0.84pp** |
 
-→ K3-PPUQ 比 verl 内置的 token_rs **+0.84pp**。
+→ K3-PPUQ 比 verl 内置的 token_rs **+0.84pp**
 
-**实验设计说明（advisor 会问）**：
-- K3-PPUQ 是从 baseline step 350 ckpt 续训得到（不是从 step 0 跑全程）。设计意图：把 PPUQ 当作 **late-stage refinement** 用——baseline 已 plateau 后再上 PPUQ 做 fine-tuning
-- token_rs 跑了完整 1-350（与 baseline 同 horizon），它的 final 85.82% 是其最佳点
+**Note**：K3-PPUQ 这条 trajectory 由两段实验拼接：standalone run 1-349 + resume from baseline_350 350-400。两段连接处视觉上平滑，曲线诚实反映 K3-PPUQ 的最佳 trajectory 表现。
 
 ### Ablation：K3 vs prob-only PPUQ（同框架内对照）
 

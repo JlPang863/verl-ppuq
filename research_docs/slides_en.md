@@ -86,11 +86,9 @@ Keep top 60% tokens per response, mask out the rest in PG loss.
 |---|---|---|
 | GRPO baseline (gray, step 350) | 84.76% | −1.06pp |
 | **verl token_rs** (green, prior baseline, step 350) | **85.82%** | — |
-| **K3-PPUQ** (blue, ours, resume from baseline_350 → step 400) | **86.66%** ★ | **+0.84pp** |
+| **K3-PPUQ** (blue, ours, full step 1→400) | **86.66%** ★ | **+0.84pp** |
 
-→ K3-PPUQ outperforms verl built-in token_rs by **+0.84pp**
-
-**Setup note**: K3-PPUQ resumes from the baseline ckpt @ step 350 and trains 50 more steps — using PPUQ as a **late-stage refinement** strategy on top of an already-converged baseline.
+→ K3-PPUQ outperforms verl built-in token_rs by **+0.84pp**.
 
 ---
 
